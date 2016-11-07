@@ -31,11 +31,11 @@ int main (void)
     while (1) {
         for (uint8_t i = 0; i < 0xff; i++) {
             set_pwm(i, i, i);
-            _delay_ms(5);
+            _delay_ms(1);
         }
         for (uint8_t i = 0xff; i != 0; i--) {
             set_pwm(i, i, i);
-            _delay_ms(5);
+            _delay_ms(1);
         }
     }
 
