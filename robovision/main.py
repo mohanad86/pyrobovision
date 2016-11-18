@@ -1,4 +1,9 @@
-from __future__ import print_function
+
+import gevent
+from gevent import monkey
+from gevent.queue import Queue, Empty
+from gevent.event import Event
+monkey.patch_all(thread=False)
 from time import sleep
 import json
 import cv2
@@ -6,213 +11,219 @@ from threading import Thread, Event
 import signal
 import numpy as np
 from flask import Flask, render_template, Response, request
-import asyncio
-import websockets
+from flask_sockets import Sockets
+import logging
 import os
+import humanize
+from collections import deque
+from recorder import Recorder
+from gameplay.rotating import Gameplay
+from datetime import datetime, timedelta
+from visualization import Visualizer
+from image_recognition import ImageRecognizer, ImageRecognition
+from grabber import PanoramaGrabber
 
+# Get Gevent websocket patched for Python3 here:
+# https://bitbucket.org/noppo/gevent-websocket/
+# hg update python3-support
+# sudo python3 setup.py install
 
-# try to load motor
-from camera import CameraMaster
-from nutgobbler import BrainFuck
-from pymatamotor import Motor
+logger = logging.getLogger("flask")
 
-motor_driver = Motor()
+# Queue messages from bootstrap
+log_queue = deque(maxlen=1000)
+websockets = set()
 
-# try to load brains
-brainfuck = BrainFuck(motor_driver)
-
-# try to load cameruhs
-cameras = CameraMaster(brainfuck)
-print('Cameras working:', cameras.slave_count)
-
-
-# initiate web services
 app = Flask(__name__)
-app.config['SECRET_KEY'] = 'secret!'
-SLEEP_TIME = 0.08
-flask_running = True
+try:
+    with open("/etc/machine-id", "r") as fh:
+        app.config['SECRET_KEY'] = fh.read()
+except:
+    app.config['SECRET_KEY'] = 'secret!'
+sockets = Sockets(app)
 
-from datetime import datetime
 
-class Recorder(Thread):
-    def __init__(self):
-        Thread.__init__(self)
-        self.daemon = True
-        self.wake = Event()
-        self.running = False
 
-    def run(self):
-        while True:
-            print("recorder waiting for wake signal")
-            self.wake.wait()
-            then = datetime.now()
-            path = os.path.expanduser("~/bot-%s.avi") % datetime.now().strftime("%Y%m%d%H%M%S")
+# Build pipeline
+grabber = PanoramaGrabber() # config read from ~/.robovision/grabber.conf
+image_recognizer = ImageRecognizer(grabber)
+gameplay = Gameplay(image_recognizer)
+visualizer = Visualizer(image_recognizer, framedrop=4)
+recorder = Recorder(grabber)
 
-            fourcc = cv2.VideoWriter_fourcc(*'XVID')
-
-            writer = cv2.VideoWriter(path, fourcc, 30, (480*8, 640))
-            while self.running:
-                cameras.slaves[0].frame_grabbed.wait()
-                frames = []
-                for index in range(0,8):
-                    slave = cameras.slaves[index]
-                    frames.append(slave.rgb_frame)
-                writer.write(np.rot90(np.vstack(frames), 3))
-            writer.release()
-            print("Recorder saved %s of video to %to:", datetime.now()-then, path)
-
-    def enable(self):
-        self.running = True
-        self.wake.set()
-        print("Enabling recording")
-
-    def disable(self):
-        self.wake.clear()
-        self.running = False
-        print("Disabled recording")
-
-    def toggle(self):
-        if self.running:
-            self.disable()
+def generator():
+    visualizer.enable()
+    queue = visualizer.get_queue()
+    while True:
+        try:
+            frame, = queue.get_nowait()
+        except:
+            sleep(0.001) # Fix this stupid thingie
+            continue
         else:
-            self.enable()
 
-recorder = Recorder()
-recorder.start()
-
+            yield b'--frame\r\nContent-Type: image/jpeg\r\n\r\n'
+            yield frame
+            yield b'\r\n\r\n'
 
 @app.route('/combined/<path:type_str>')
 def video_combined(type_str):
     TYPES = ['VIDEO', 'DEBUG', 'COMBO']
-
-    def generator():
-        while flask_running:
-            last_frame = cameras.get_group_photo(mode=TYPES.index(type_str.upper()))
-            ret, jpeg = cv2.imencode('.jpg', last_frame, (cv2.IMWRITE_JPEG_QUALITY, 80))
-            yield b'--frame\r\nContent-Type: image/jpeg\r\n\r\n' + jpeg.tostring() + b'\r\n\r\n'
-            sleep(SLEEP_TIME)
     return Response(generator(), mimetype='multipart/x-mixed-replace; boundary=frame')
-
 
 @app.route('/')
 def group():
-    return render_template('group.html', camera_list=cameras.get_slaves_list())
-
-# static files for js and css
-@app.route('/nouislider.css')
-def nouisliderCSS():
-    return render_template('nouislider.css')
-
-
-@app.route('/nouislider.js')
-def nouisliderJS():
-    return render_template('nouislider.js')
+    return render_template(
+        'group.html',
+        YELLOW_LOWER=ImageRecognition.YELLOW_LOWER,
+        YELLOW_UPPER=ImageRecognition.YELLOW_UPPER,
+    )
 
 
-@app.route('/config/camera/<path:camera_id>', methods=['get', 'post'])
-def config(camera_id):
-    camera_id = int(camera_id)
-    channel = request.form.get('channel')
-    LOWER = int(request.form.get('LOWER'))
-    UPPER = int(request.form.get('UPPER'))
-    print('config', channel, LOWER, UPPER)
+@sockets.route('/')
+def command(websocket):
+    x = 0
+    y = 0
+    w = 0
 
-    data = {"channel": (channel, LOWER, UPPER)}
-    cameras.set_slave_properties(camera_id, data)
+    for buf in log_queue:
+        websocket.send(buf)
 
-    return 'Mkay, yes, a response, I guess I can do that.'
+    while not websocket.closed:
+        websockets.add(websocket)
+        gevent.sleep(0.1)
 
+        msg = websocket.receive()
 
-@app.route('/iter/<path:camera_id>', methods=['get', 'post'])
-def iter(camera_id):
-    camera_id = int(camera_id)
-
-    return str(cameras.set_slave_properties(camera_id, {"order": -1}))
-
-
-class Bread(Thread):
-    def __init__(self):
-        Thread.__init__(self)
-        self.daemon = True
-        self.start()
-
-    def run(self):
-        print("bread start")
-        app.run(host='0.0.0.0', debug=True, use_reloader=False, threaded=True)
-
-    def close(self):
-        pass  # no wai to kill
-        # app.stop(timeout=5)
-
-
-server = Bread()
-
-# handle shut down signals, as this is a threaded mess of a system
-def signal_handler(sig, frame):
-    global flask_running
-    motor_driver.close()
-    flask_running = False
-    server.close()
-    cameras.close()
-    exit(0)
-
-signal.signal(signal.SIGINT, signal_handler)
-
-
-# initiate web sockets
-
-async def time(websocket, path):
-    last = None
-    while True:
-        try:
-            await websocket.send("hello")
-            command = await websocket.recv()
-            response = json.loads(command)
-        except:
-            print("Did it dieded? :(")
+        if not msg:
+            websockets.remove(websocket)
+            logger.info("WebSocket connection presumably closed, %d left connected" % len(websockets))
             break
-        action = response.pop("action")
+        response = json.loads(msg)
+        action = response.pop("action", None)
+        if not action:
+            logger.info("Unknown action")
+            continue
+
+
         if action == "gamepad":
-            for k in response:
-                #print("K:", k)
-                gamepad = response[k]
+            controls = response.pop("data")
+            x = controls.pop("controller0.axis0", x) * 0.99
+            y = controls.pop("controller0.axis1", y) * 0.99
+            w = controls.pop("controller0.axis2", w) * 0.99
 
-                axis = gamepad.get("axis",  {})
-                a, b, right_joystick_x, d, e, f = [axis.get(j, 0) for j in "012345"]
+            # Kick the ball
+            if controls.get("controller0.button7", None):
+                gameplay.arduino.kick()
 
-                button = gamepad.get("button", {})
-                kicker = any([button.get(key, [False, False])[0] for key in '45']) # left-4 & right-5 trigger
+            # Toggle autonomy
+            if controls.get("controller0.button4", None):
+                gameplay.toggle()
 
-                MODE_A = button.get("7", [False, False])[0]
-                MODE_B = button.get("6", [False, False])[0]
+            # Manual control of the robot
+            if not gameplay.alive:
+                gameplay.arduino.set_xyw(x,-y,-w)
 
-                data = {
-                    'K': kicker,
-                    "M_A": MODE_A,
-                    "M_B": MODE_B,
-                    "TYPE": "A",
-                }
-                if (a, b, right_joystick_x) != last:
-                    data.update( {
-                        'Fw': -right_joystick_x,
-                        'Fx': -a, # joysticks are weird
-                        'Fy': -b,
-                    })
-                last = (a, b, right_joystick_x)
-                # print("\t\tFx{Fx:.4f}\tFy:{Fy:.4f}\tR:{Fw:.4f}".format(**data))
-                motor_driver.load_data(data)
+
         elif action == "record_toggle":
+            print("TOGGLING RECORDER")
             recorder.toggle()
         elif action == "record_enable":
             recorder.enable()
         elif action == "record_disable":
             recorder.disable()
         else:
-            print("Unhandled action:", action)
-        sleep(0.004)
+            logger.error("Unhandled action: %s", action)
+    websockets.remove(websocket)
+    logger.info("WebSocket connection closed, %d left connected", len(websockets))
+    return b""
+
+class MyEncoder(json.JSONEncoder):
+    def default(self, obj):
+        if isinstance(obj, datetime):
+            return obj.strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
+        if isinstance(obj, timedelta):
+            f = obj.total_seconds()
+            mins = f // 60
+            return "%02d:%06.03f" % (mins, f % 60)
+        return json.JSONEncoder.default(self, obj)
 
 
-start_server = websockets.serve(time, '0.0.0.0', 5001)
+class WebsocketLogHandler(logging.Handler):
+    def __init__(self):
+        logging.Handler.__init__(self)
+        self.started = datetime.utcnow()
 
-asyncio.get_event_loop().run_until_complete(start_server)
-asyncio.get_event_loop().run_forever()
+    def emit(self, record):
+        timestamp = datetime.utcfromtimestamp(record.created)
+        buf = json.dumps(dict(
+                action = "log-entry",
+                created = timestamp,
+                uptime = timestamp - self.started,
+                message = record.msg % record.args,
+                severity = record.levelname.lower()), cls=MyEncoder)
+        log_queue.append(buf)
+        for websocket in websockets:
+            websocket.send(buf)
+
+def main():
+    logger.info("Starting robovision")
+
+    logging.basicConfig(
+        filename="/tmp/robovision.log",
+        level=logging.INFO)
+
+    ws_handler = WebsocketLogHandler()
+    handler = logging.StreamHandler()
+    handler.setLevel(logging.DEBUG)
+    formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+    handler.setFormatter(formatter)
+    for facility in "grabber", "recognition", "cli", "flask", "arduino", "gameplay", "threading":
+        logging.getLogger(facility).addHandler(handler)
+        logging.getLogger(facility).addHandler(ws_handler)
+        logging.getLogger(facility).setLevel(logging.DEBUG)
+
+    from gevent import pywsgi
+    from geventwebsocket.handler import WebSocketHandler
+
+    ip, port = ('0.0.0.0', 5000)
+    if os.getuid() == 0:
+        port = 80
+
+
+    server = pywsgi.WSGIServer((ip, port), app, handler_class=WebSocketHandler)
+    logger.info("Started server at http://{}:{}".format(ip, port))
+
+    # Quick'n'diry hacks
+    image_recognizer.grabber = grabber
+    image_recognizer.websockets = websockets
+
+    # Start all threads
+    image_recognizer.start()
+    gameplay.start()
+    grabber.start()
+    recorder.start()
+    visualizer.start()
+
+
+    # Register threads for monitoring
+    from managed_threading import ThreadManager
+    manager = ThreadManager()
+    manager.register(gameplay)
+    manager.register(recorder)
+    manager.register(grabber)
+    manager.register(visualizer)
+    manager.register(image_recognizer)
+    #manager.start()
+
+    # Enable some threads
+    image_recognizer.enable()
+    visualizer.enable()
+    server.serve_forever()
+
+if __name__ == '__main__':
+    main()
+
+#start_server = websockets.serve(time, '0.0.0.0', 5001)
+#asyncio.get_event_loop().run_until_complete(start_server)
+#asyncio.get_event_loop().run_forever()

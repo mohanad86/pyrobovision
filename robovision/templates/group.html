@@ -4,61 +4,94 @@
 <div class='center'>
     <div class="multiCameraWrapper">
         <div class="buttons">
-            <button type="button" class="btn btn-primary" onclick='setGroupSource("cameras","video");'>Primary</button>
-            <button type="button" class="btn btn-success" onclick='setGroupSource("cameras","debug");'>Debug</button>
-            <button type="button" class="btn btn-info" onclick='setGroupSource("cameras","combo");'> Both</button>
-            <button type="button" class="btn btn-danger" onclick='setGroupSource("cameras");'>None</button>
+            <button type="button" class="btn btn-primary" onclick='showCamera();'>Primary</button>
+            <button type="button" class="btn btn-info" onclick='showField();'>Field</button>
+            <button type="button" class="btn btn-danger" onclick='resetStream();'>None</button>
             <button type="button" class="btn btn-info" id="toggle_recording">Record</button>
         </div>
-        <div class="cameras">
-            <img id='cameras' style="-webkit-user-select: none" src="combined/video">
+        <div class="cameras" style="position: relative; left: 0; top: 0;">
+            <img id='field' style="-webkit-user-select: none; position: relative; top: 0; left: 0;" src="http://192.168.12.107:5000/stream">
+
+            <svg id="marker" style="position: absolute; top: 60px; left: 80px;" width="40" height="40">
+               <circle cx="20" cy="20" r="16" stroke="red" stroke-width="4" fill="none" />
+               Sorry, your browser does not support inline SVG.
+            </svg>
         </div>
+            <img id='cameras' style="-webkit-user-select: none; position: relative; top: 0; left: 0;" src="combined/video">
     </div>
-    {% for key,camera in camera_list %}
     <div class="floatBlock">
-        <h2><i class="fa fa-camera" onclick='iterIndex({{ key }});'>: </i><span id="camera-{{ key }}">{{ key }}</span>
+        <h2>
+            <span id="camera">Camera slider</span>
         </h2>
         <div class="no-ui-slider">
-            <div class="slider" id='{{ key }}' data-channel="H" data-min="0" data-max="180"
-                 data-start='{{ camera.BALL_LOWER[0] }}'
-                 data-end='{{ camera.BALL_UPPER[0] }}'></div>
+            <div class="slider" data-channel="H" data-min="0" data-max="180"
+                 data-start='{{ YELLOW_LOWER[0] }}' data-end='{{ YELLOW_UPPER[0] }}'></div>
             <br>
-            <div class="slider" id='{{ key }}' data-channel="S" data-min="0" data-max="255"
-                 data-start='{{ camera.BALL_LOWER[1] }}' data-end='{{ camera.BALL_UPPER[1] }}'></div>
+            <div class="slider" data-channel="S" data-min="0" data-max="255"
+                 data-start='{{ YELLOW_LOWER[1] }}' data-end='{{ YELLOW_UPPER[1] }}'></div>
             <br>
-            <div class="slider" id='{{ key }}' data-channel="V" data-min="0" data-max="255"
-                 data-start='{{ camera.BALL_LOWER[2] }}' data-end='{{ camera.BALL_UPPER[2] }}'></div>
+            <div class="slider" data-channel="V" data-min="0" data-max="255"
+                 data-start='{{ YELLOW_LOWER[2] }}' data-end='{{ YELLOW_UPPER[2] }}'></div>
         </div>
     </div>
-
-    {% else %}
-    <em>Unbelievable. No CAMERAS here so far</em>
-    {% endfor %}
+{#    <em>Unbelievable. No CAMERAS here so far</em>#}
 </div>
 {% endblock %}
 
 {% block extra_scripts %}
 <script type="text/javascript">
-        function setGroupSource(key,type) {
-            var camera = '#'+key;
-            if (type==undefined){
-                $(camera).attr("src","");
-                return;
-            }
-            var url = "combined/"+type;
-            if ($(camera).attr("src")!=url){
-                $(camera).attr("src","");
-                $(camera).attr("src",url);
-            }
+        function resetStream() {
+            $('#cameras').attr("src", "");
         }
-        function iterIndex(camera) {
+        function showCamera() {
+            resetStream();
+            $('#cameras').attr("src", 'combined/video');
+            $('#cameras').css("width", '100%');
+
+        }
+
+        function showField() {
+            resetStream();
+            $('#cameras').attr("src", 'http://192.168.12.107:5000/stream');
+            $('#cameras').css("width", 'inherit');
+        }
+
+        function setColor(values) {
+            var channel = this.target.dataset.channel;
+            var query = "LOWER=" + values[0] + "&UPPER=" + values[1] + "&channel=" + channel;
+            console.log(query);
             $.ajax({
-                url: "/iter/" + camera,
+                url: "/config/camera/", // + this.target.id
                 type: 'POST',
-                success: function(response) {
-                   $( "#camera-"+camera ).text(response);
+                data: query
+            });
+        }
+
+        var sliders = $(".slider");
+        console.log('sliders',sliders);
+        for (var i = 0; i < sliders.length; i++) {
+            var min = parseInt(sliders[i].getAttribute("data-min"));
+            var max = parseInt(sliders[i].getAttribute("data-max"));
+            var start = parseInt(sliders[i].getAttribute("data-start"));
+            var end = parseInt(sliders[i].getAttribute("data-end"));
+            noUiSlider.create(sliders[i], {
+                start: [start, end],
+                behaviour: 'drag',
+                animate: false,
+                step: 1,
+                connect: true,
+                tooltips: true,
+                range: {'min': min, 'max': max},
+                format: {
+                    to: function (value) {
+                        return Math.round(value);
+                    },
+                    from: function (value) {
+                        return value;
+                    }
                 }
             });
+            sliders[i].noUiSlider.on('change', setColor);
         }
 
 </script>

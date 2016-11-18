@@ -5,14 +5,28 @@
     <meta charset="UTF-8">
     <title>Slidershurrdurr</title>
     {% block head %}
-    <script src="//code.jquery.com/jquery-1.12.0.min.js"></script>
-    <link rel="stylesheet" type="text/css" href="{{ url_for('static',filename='nouislider.css') }}">
-    <script type="text/javascript" src="{{ url_for('static',filename='nouislider.js') }}"></script>
-    <link rel="stylesheet" href="http://yui.yahooapis.com/pure/0.6.0/pure-min.css">
-    <link rel="stylesheet" type="text/css" href="{{ url_for('static', filename='webpage.css') }}">
-    <link rel="stylesheet" href="http://maxcdn.bootstrapcdn.com/bootstrap/3.3.6/css/bootstrap.min.css">
-    <script src="http://maxcdn.bootstrapcdn.com/bootstrap/3.3.6/js/bootstrap.min.js"></script>
-    <script src="{{ url_for('static', filename='robovision.js') }}"></script>
+        <script src="//code.jquery.com/jquery-1.12.0.min.js"></script>
+        <link rel="stylesheet" type="text/css" href="{{ url_for('static',filename='nouislider.css') }}">
+        <script type="text/javascript" src="{{ url_for('static',filename='nouislider.js') }}"></script>
+        <link rel="stylesheet" href="http://yui.yahooapis.com/pure/0.6.0/pure-min.css">
+        <link rel="stylesheet" type="text/css" href="{{ url_for('static', filename='css/webpage.css') }}">
+        <link rel="stylesheet" href="{{ url_for('static', filename='css/bootstrap.min.css') }}">
+
+
+        <script type="text/javascript" src="{{ url_for('static', filename='js/smoothie.js') }}"></script>
+        <link rel="stylesheet" href="{{ url_for('static', filename='css/codemirror.css') }}">
+        <script type="text/javascript" src="{{ url_for('static', filename='js/reconnecting-websocket.js') }}"></script>
+        <script type="text/javascript" src="{{ url_for('static', filename='js/codemirror.js') }}"></script>
+        <script type="text/javascript" src="{{ url_for('static', filename='js/jquery.min.js') }}"></script>
+        <script type="text/javascript" src="{{ url_for('static', filename='js/nunjucks.min.js') }}"></script>
+        <script type="text/javascript" src="{{ url_for('static', filename='js/robovision.js') }}"></script>
+        <script type="text/javascript" src="{{ url_for('static', filename='js/javascript.js') }}"></script>
+        <script type="text/javascript" src="{{ url_for('static', filename='js/htmlmixed.js') }}"></script>
+        <script type="text/javascript" src="{{ url_for('static', filename='js/python.js') }}"></script>
+
+
+        <script src="{{ url_for('static', filename='js/bootstrap.min.js') }}"></script>
+        <script src="{{ url_for('static', filename='robovision.js') }}"></script>
     {% endblock %}
 </head>
 <body>
@@ -27,7 +41,7 @@
             <ul class="pure-menu-list">
                 <li class="pure-menu-item pure-menu-has-children pure-menu-allow-hover">
                     <a href="#" class="pure-menu-link">
-                        Cameras <i class="fa fa-camera"> <sup>{{ camera_list|length}}</sup></i>
+                        Cameras <i class="fa fa-camera"> <sup>{{ camera_list|length }}</sup></i>
                     </a>
                     <ul class="pure-menu-children">
                         <li class="pure-menu-item">
@@ -40,11 +54,11 @@
                     <a href="#" id="menuLink1" class="pure-menu-link">Status <i class="fa fa-battery-quarter"></i> </a>
                     <ul class="pure-menu-children">
                         <li class="pure-menu-item"><a href="#" class="pure-menu-link">Battery 25% <i
-                                class="fa fa-battery-quarter"></i></a></li>
+                            class="fa fa-battery-quarter"></i></a></li>
                         <li class="pure-menu-item"><a href="#" class="pure-menu-link">CPU Load 35%
                             <i class="fa fa-cog fa-spin"></i></a></li>
                         <li class="pure-menu-item"><a href="#" class="pure-menu-link">Compassion 0% <i
-                                class="fa fa-heart"></i>
+                            class="fa fa-heart"></i>
                         </a></li>
                     </ul>
                 </li>
@@ -69,7 +83,7 @@
                             <i class="fa fa-heart"></i></a></li>
                         <li class="pure-menu-item"><a href="https://github.com/laurivosandi/pyrobovision"
                                                       class="pure-menu-link">laurivosandi master<i
-                                class="fa fa-heart"></i></a></li>
+                            class="fa fa-heart"></i></a></li>
                     </ul>
                 </li>
             </ul>
@@ -77,8 +91,27 @@
     </div>
 </div>
 
+
+<button class="save">Save</button>
+<button class="save_as">Save as ...</button>
+<button class="run">Run</button>
+<button class="stop">Stop</button>
+<select id="file">
+</select>
+<textarea id="code"></textarea>
+
+<div id="sensors">
+
+</div>
+TERE
+
 {% block content %}
+    Is content
 {% endblock %}
+
+<ul id="log">
+</ul>
+
 
 <script type="text/javascript">
 
